@@ -8,9 +8,12 @@
 
 ### 2.1 类继承关系
 Algo (算法类)
-└── GPU (GPU类)
-    └── TB (Thread Block类)
-        └── Step (步骤类)
+
+&emsp;&emsp; └── GPU (GPU类)
+
+&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;└── TB (Thread Block类)
+
+&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;└── Step (步骤类)
 
 ### 2.2 辅助类
 - **Chunk类**: 数据块抽象，提供高级API操作

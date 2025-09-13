@@ -90,14 +90,21 @@ TB(id: Optional[int] = None, send: int = -1, recv: int = -1, chan: int = 0)
 **核心方法**
 ``` python
 def add_step(self, step: Step) -> None
-#添加Step到TB，自动设置索引和TB引用。
+```
+
+添加Step到TB，自动设置索引和TB引用。
+
+``` python
 
 def sort_steps_by_index(self) -> None
-#按send/recv index对steps排序，避免死锁。
+```
+按send/recv index对steps排序，避免死锁。
+``` python
 
 def insert_nop_step(self, position: int, dep_steps: List[Step]) -> Step
-#在指定位置插入nop step处理多重依赖。
 ```
+在指定位置插入nop step处理多重依赖。
+
 
 ### 2.4 Step类
 **构造函数**
@@ -115,14 +122,18 @@ Step(s: Optional[int] = None, type: str = "nop", srcbuf: str = "i",
 - "rcs": Reduce-Copy-Send复合操作
 - "nop": 无操作 (仅用于依赖管理)
 **核心方法**
+**依赖管理**
 ``` python
-依赖管理
+
 def add_dep(self, dep_step: Step) -> None
-#添加依赖关系，自动进行合法性检查。
+```
+添加依赖关系，自动进行合法性检查。
+``` python
 
 def remove_dep(self, dep_step: Step) -> None
-#移除依赖关系，自动维护被依赖列表。
 ```
+
+移除依赖关系，自动维护被依赖列表。
 
 ## 3. Chunk高级API
 ### 3.1 构造函数
@@ -181,9 +192,8 @@ def send(self, dest_rank: int, channel_id: int, dep_steps: List[Step] = None,
 - dest_rank: 目标GPU rank
 - bidirectional: 控制TB创建模式
 - bidirectional影响:
-
-- - True: 创建send=recv=dest_rank的TB (双向通信)
-- - False: 创建send=dest_rank, recv=-1的TB (单向发送)
+  - True: 创建send=recv=dest_rank的TB (双向通信)
+  - False: 创建send=dest_rank, recv=-1的TB (单向发送)
 
 **recv - 接收操作**
 ``` python
@@ -193,101 +203,111 @@ def recv(self, src_rank: int, channel_id: int, dep_steps: List[Step] = None,
 与send操作对称，处理数据接收。
 
 ### 3.4 复合操作
-```python
-rcs - Reduce-Copy-Send
+**rcs - Reduce-Copy-Send**
+``` python
 def rcs(self, dest_chunk: Chunk, intermediate_rank: int, channel_id: int, 
         dep_steps: List[Step] = None) -> Step
-功能: 在指定GPU上执行reduce-copy-send操作
-约束: 三个rank (src, dest, intermediate) 必须互不相同
-
-处理逻辑:
-
-检查rank唯一性和chunk大小一致性
-在intermediate_rank上查找或创建TB
-创建"rcs"类型Step
 ```
-4. 系统级API
-4.1 依赖构建
+功能: 在指定GPU上执行copy-send操作
+
+
+## 4. 系统级API
+### 4.1 依赖构建
+``` python
 algo.build_all_dependencies(merge_rcs=False, sort=True)
+```
 执行流程:
+- 排序阶段 (如果sort=True): 对所有TB的Step按index排序
+- 构建阶段: 多轮遍历处理所有依赖关系
 
-排序阶段 (如果sort=True): 对所有TB的Step按index排序
-构建阶段: 多轮遍历处理所有依赖关系
 merge_rcs优化:
-
-自动检测相邻的recv+send操作
-满足条件时合并为单个rcs操作
-减少通信步骤，提高效率
-4.2 XML导出
+- 自动检测相邻的recv+send操作
+- 满足条件时合并为单个rcs操作
+- 减少通信步骤，提高效率
+### 4.2 XML导出
+``` python
 algo.save_xml("output.xml")
+```
 生成标准格式的XML配置文件。
 
-5. 使用模式和最佳实践
-5.1 推荐工作流程
-# 1. 创建算法实例
-algo = Algo(name="my_algorithm", ngpus=4, nchannels=2)
+## 5. 使用模式和最佳实践
+### 5.1 推荐工作流程
+``` python
+# 使用示例
+from msccl_xml_builder import Algo, Chunk,TB
 
-# 2. 定义数据块
-chunks = [Chunk(gpu_id=i, chunk_type="output", index=0, size=1, algo=algo) 
-          for i in range(4)]
+if __name__ == "__main__":
+    # 创建算法
 
-# 3. 定义通信操作
-steps = []
-for i in range(4):
-    next_rank = (i + 1) % 4
-    step = chunks[i].send(next_rank, channel_id=0)
-    steps.append(step)
+    ngpus=2
+    chunk=ngpus
+    algo = Algo(name="ag_test", proto = "Simple", nchannels = 1, 
+                 nchunksperloop = chunk, ngpus = ngpus, coll = "allgather",
+                 inplace = 1, outofplace = 1, minBytes = 0, maxBytes = 0)
+    
+    #显示的创建本地copytb
+    local_tbs = {}      # {rank: tb} - 本地操作TB
+    for rank in range(ngpus):
 
-# 4. 添加依赖关系 (可选)
-# step2.add_dep(step1)
+        local_tb = TB(send=-1, recv=-1, chan=0)
+        gpu = algo.get_gpu(rank)
 
-# 5. 构建依赖并导出
-algo.build_all_dependencies(merge_rcs=True)
-algo.save_xml("output.xml")
-5.2 错误预防技巧
-避免通道冲突
-# ✓ 正确：不同操作使用不同通道
-chunk_a.send(1, channel_id=0)
-chunk_b.send(2, channel_id=1)
+        gpu.add_tb(local_tb)
+        local_tbs[rank] = local_tb
+        
+    # 本地copy
+    copy_steps = []
+    for rank in range(ngpus):
+        src_chunk = Chunk(gpu_id=rank, chunk_type="i", index=0, size=1, algo=algo)
+        dest_chunk = Chunk(gpu_id=rank, chunk_type="o", index=rank, size=1, algo=algo)
+        copy_step = src_chunk.copy(dest_chunk, channel_id=0)
+        copy_steps.append(copy_step)
 
-# ✗ 错误：同通道多重绑定
-chunk_a.send(1, channel_id=0)
-chunk_c.send(1, channel_id=0)  # 冲突！
-合理管理依赖
-# ✓ 正确：同GPU不同TB的依赖
-step_gpu0_tb0 = chunk_a.copy(chunk_b, channel_id=0)
-step_gpu0_tb1 = chunk_c.send(1, channel_id=1, dep_steps=[step_gpu0_tb0])
+    #创建P2P tb
+    rank = 0
+    
+    peer_rank=1
 
-# ✗ 错误：跨GPU依赖
-step_gpu0 = chunk_gpu0.send(1, channel_id=0)
-step_gpu1 = chunk_gpu1.send(2, channel_id=1, dep_steps=[step_gpu0])  # 非法！
-5.3 调试技巧
-# 检查通道使用情况
-for gpu in algo.gpus:
-    print(f"GPU {gpu.id} channels: {gpu.channel_usage}")
+    gpu = algo.get_gpu(rank)
+    
+    peer_gpu = algo.get_gpu(peer_rank)
 
-# 检查依赖关系
-for tb in gpu.tbs:
-    for step in tb.steps:
-        if step.dep_list:
-            print(f"Step {step.s} depends on: {[dep.s for dep in step.dep_list]}")
-6. 高级特性
-6.1 自动TB管理
-框架自动处理TB的创建和ID分配，用户通常不需要手动创建TB实例。
+    tb = TB(send=peer_rank, recv=peer_rank, chan=0)
+    
+    peer_tb = TB(send=rank, recv=rank, chan=0)
 
-6.2 RCS优化
-# 启用RCS合并可以自动优化这种模式：
-recv_step = chunk_a.recv(src_rank=0, channel_id=0)
-send_step = chunk_a.send(dest_rank=2, channel_id=0, dep_steps=[recv_step])
+    gpu.add_tb(tb)
 
-# 构建时自动合并为：
-# rcs_step (type="rcs")
-6.3 灵活的依赖管理
-# 可以在任何时候添加依赖
-step1 = chunk_a.send(1, channel_id=0)
-step2 = chunk_b.send(2, channel_id=1) 
-step3 = chunk_c.copy(chunk_d, channel_id=2)
+    peer_gpu.add_tb(peer_tb)
 
-# 后续添加依赖
-step3.add_dep(step1)
-step3.add_dep(step2)
+    #数据发送，并设置依赖
+
+    src_chunk = Chunk(gpu_id=rank, chunk_type="o", index=rank, size=1, algo=algo)
+    dest_chunk = Chunk(gpu_id=peer_rank, chunk_type="o", index=peer_rank, size=1, algo=algo)
+
+    send_step = src_chunk.send(dest_rank=peer_rank, channel_id= 0, dep_steps=[copy_steps[rank]])
+    recv_step = dest_chunk.recv(src_rank=rank, channel_id= 0)
+
+    #需要绑定send recv
+    send_step.peer_step = recv_step
+    recv_step.peer_step = send_step
+
+    
+
+    recv_step.add_dep(copy_steps[peer_rank]) #支持后续显示的添加依赖
+
+    #可以通过copy_diff 实现send recv
+
+    src_chunk = Chunk(gpu_id=peer_rank, chunk_type="o", index=peer_rank, size=1, algo=algo)
+    dest_chunk = Chunk(gpu_id=rank, chunk_type="o", index=rank, size=1, algo=algo)
+
+    peer_send_step, peer_recv_step = src_chunk.copy_diff(dest_chunk, channel_id=0, dep_steps=[copy_steps[peer_rank]])
+
+    algo.build_all_dependencies() #需要显示的调用依赖构建
+    
+    # 保存XML
+    algo.save_xml("output.xml")
+    print("XML文件已生成: output.xml")
+``` 
+
+
