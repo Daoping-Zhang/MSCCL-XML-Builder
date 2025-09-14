@@ -1,4 +1,4 @@
-# msccl-xml-generator
+# MSCCL-XML-Builder
 
 A Python library for generating Microsoft Collective Communication Library (MSCCL) XML files that define custom collective communication algorithms with fine-grained control over data flow operations.
 
@@ -24,14 +24,29 @@ Microsoft Collective Communication Library (MSCCL) is a platform to execute cust
 
 ## Installation
 
-### Local Development Installation
+### Direct Installation from GitHub
+
+To install the latest version directly from the repository:
 
 ```bash
-# Clone or download the project to your local machine
-cd /path/to/msccl-xml-builder
+pip3 install git+https://github.com/Daoping-Zhang/MSCCL-XML-Builder.git
 
-# Install in development mode
+```
+
+
+### Local Development Installation
+
+For contributing to development or modifying the code:
+
+
+```bash
+# Clone the repository
+git clone https://github.com/Daoping-Zhang/MSCCL-XML-Builder.git
+cd msccl-xml-builder
+
+# Install in editable/development mode
 pip3 install -e .
+
 ```
 
 ## Troubleshooting
